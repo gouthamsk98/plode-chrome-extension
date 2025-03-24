@@ -14,9 +14,24 @@ NATIVE_MESSAGING_HOST="com.$APP_NAME.native"
 EXT_DIR="$BUILD_DIR/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 CHROME_SUPPORT_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 
-echo "🔨 Building the Rust app..."
-cargo build --release
+ARCHS=("aarch64-apple-darwin" "x86_64-apple-darwin")
+UNIVERSAL_BINARY="target/universal/$APP_NAME"
 
+mkdir -p "target/universal"
+
+# Build for both architectures
+echo "🔨 Building Rust app for macOS ARM and Intel..."
+for ARCH in "${ARCHS[@]}"; do
+    cargo build --release --target "$ARCH"
+done
+
+# Create universal binary
+echo "🔗 Creating universal binary..."
+lipo -create -output "$UNIVERSAL_BINARY" \
+    "target/aarch64-apple-darwin/release/$APP_NAME" \
+    "target/x86_64-apple-darwin/release/$APP_NAME"
+
+# Create package structure
 echo "📁 Creating package structure..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$BIN_DIR"
@@ -24,10 +39,11 @@ mkdir -p "$PLIST_DIR"
 mkdir -p "$EXT_DIR"
 mkdir -p "$CHROME_SUPPORT_DIR"
 
-echo "📦 Copying binary to $BIN_DIR..."
-cp "target/release/$APP_NAME" "$BIN_DIR/"
+# Copy binary
+cp "$UNIVERSAL_BINARY" "$BIN_DIR/$APP_NAME"
 chmod +x "$BIN_DIR/$APP_NAME"
 
+# Create LaunchAgent plist
 echo "📝 Creating LaunchAgent plist..."
 cat <<EOF > "$PLIST_PATH"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -48,6 +64,7 @@ cat <<EOF > "$PLIST_PATH"
 </plist>
 EOF
 
+# Set up Native Messaging host
 echo "📦 Setting up Native Messaging host..."
 NATIVE_HOST_PATH="/usr/local/bin/$APP_NAME"
 NATIVE_MANIFEST="$EXT_DIR/$NATIVE_MESSAGING_HOST.json"
@@ -64,10 +81,9 @@ cat <<EOF > "$NATIVE_MANIFEST"
 }
 EOF
 chmod o+r "$NATIVE_MANIFEST"
-
-echo "📂 Copying Native Messaging host JSON to Chrome support directory..."
 cp "$NATIVE_MANIFEST" "$CHROME_SUPPORT_DIR/"
 
+# Create macOS .pkg installer
 echo "📦 Creating macOS .pkg installer..."
 pkgbuild --root "$BUILD_DIR" \
     --identifier "$IDENTIFIER" \
