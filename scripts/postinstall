@@ -1,0 +1,26 @@
+#!/bin/bash
+
+set -e
+
+APP_NAME="plode"
+BIN_PATH="/usr/local/bin/$APP_NAME"
+PLIST_PATH="/Library/LaunchAgents/com.$APP_NAME.daemon.plist"
+NATIVE_MANIFEST="/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.$APP_NAME.native.json"
+
+echo "🔧 Setting up binary permissions..."
+chmod +x "$BIN_PATH"
+
+echo "📂 Ensuring LaunchAgent is loaded..."
+chmod 644 "$PLIST_PATH"
+chown root:wheel "$PLIST_PATH"
+launchctl load -w "$PLIST_PATH"
+
+echo "📦 Copying Native Messaging host JSON to user directories..."
+for user_home in /Users/*; do
+    CHROME_SUPPORT_DIR="$user_home/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+    mkdir -p "$CHROME_SUPPORT_DIR"
+    cp "$NATIVE_MANIFEST" "$CHROME_SUPPORT_DIR/"
+    chmod o+r "$CHROME_SUPPORT_DIR/com.$APP_NAME.native.json"
+done
+
+echo "✅ Installation complete!"

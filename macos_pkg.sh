@@ -12,6 +12,7 @@ PLIST_DIR="$BUILD_DIR/Library/LaunchAgents"
 PLIST_PATH="$PLIST_DIR/com.$APP_NAME.daemon.plist"
 NATIVE_MESSAGING_HOST="com.$APP_NAME.native"
 EXT_DIR="$BUILD_DIR/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+CHROME_SUPPORT_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 
 echo "🔨 Building the Rust app..."
 cargo build --release
@@ -21,6 +22,7 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BIN_DIR"
 mkdir -p "$PLIST_DIR"
 mkdir -p "$EXT_DIR"
+mkdir -p "$CHROME_SUPPORT_DIR"
 
 echo "📦 Copying binary to $BIN_DIR..."
 cp "target/release/$APP_NAME" "$BIN_DIR/"
@@ -63,7 +65,15 @@ cat <<EOF > "$NATIVE_MANIFEST"
 EOF
 chmod o+r "$NATIVE_MANIFEST"
 
+echo "📂 Copying Native Messaging host JSON to Chrome support directory..."
+cp "$NATIVE_MANIFEST" "$CHROME_SUPPORT_DIR/"
+
 echo "📦 Creating macOS .pkg installer..."
-pkgbuild --root "$BUILD_DIR" --identifier "$IDENTIFIER" --version "$VERSION" --install-location / "$PKG_NAME"
+pkgbuild --root "$BUILD_DIR" \
+    --identifier "$IDENTIFIER" \
+    --version "$VERSION" \
+    --install-location / \
+    --scripts scripts \
+    "$PKG_NAME"
 
 echo "✅ Done! Install using: sudo installer -pkg $PKG_NAME -target /"

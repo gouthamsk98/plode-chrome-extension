@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 rusb="0.9.4"
 clap="4.5.32"
+regex = "1.11.1"
