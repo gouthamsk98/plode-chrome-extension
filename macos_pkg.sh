@@ -27,6 +27,11 @@ done
 
 # Create universal binary
 echo "🔗 Creating universal binary..."
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+echo "🔨 Building the Rust app for both architectures..."
+cargo build --release --target aarch64-apple-darwin
+cargo build --release --target x86_64-apple-darwin
 lipo -create -output "$UNIVERSAL_BINARY" \
     "target/aarch64-apple-darwin/release/$APP_NAME" \
     "target/x86_64-apple-darwin/release/$APP_NAME"

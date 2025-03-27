@@ -67,9 +67,7 @@ fn read_thread_func(tx: Sender<Option<String>>) {
         }
     }
 }
-fn test() {
-    send_message("enter").unwrap();
-}
+
 fn main() {
     let target_vid = "0xb1b0";
     let pid = "0x8055";
@@ -212,26 +210,32 @@ fn main() {
                             }
                         }
                     }
-                    r#""rm""# => {
-                        match find_mount_point(target_vid) {
-                            Some(mount_point) => {
-                                let file_path = Path::new(&mount_point).join("test.txt");
-                                if file_path.exists() {
-                                    fs::remove_file(&file_path).unwrap();
-                                    send_message(r#""File removed successfully""#).unwrap();
-                                } else {
-                                    send_message(r#""File not found""#).unwrap();
+                    command if command.starts_with(r#""rm"#) => {
+                        let re = regex::Regex::new(r#""rm\s+--name\s+\\"([^"]+)\\"""#).unwrap();
+                        if let Some(caps) = re.captures(&message) {
+                            let name = &caps[1];
+                            match find_mount_point(target_vid) {
+                                Some(mount_point) => {
+                                    let file_path = Path::new(&mount_point).join(name);
+                                    if file_path.exists() {
+                                        fs::remove_file(&file_path).unwrap();
+                                        send_message(r#""File removed successfully""#).unwrap();
+                                    } else {
+                                        send_message(r#""File not found""#).unwrap();
+                                    }
+                                }
+                                None => {
+                                    send_message(r#""Device not found or not mounted""#).unwrap();
                                 }
                             }
-                            None => {
-                                send_message(r#""Device not found or not mounted""#).unwrap();
-                            }
+                        } else {
+                            send_message(r#""Invalid rm command format""#).unwrap();
                         }
                     }
                     command if command.starts_with(r#""add"#) => {
                         let re = regex::Regex
                             ::new(
-                                r#""add\s+--name\s+\\"([^"]+)\\"\s+--format\s+\\"([^"]+)\\"\s+--data\s+\\"([^"]+)\\"""#
+                                r#""add\s+--name\s+\\"([^"]+)\\"\s+--format\s+\\"([^"]+)\\"\s+--data\s+\\"\\"\\"((?:\\"|.)*?)\\"\\"\\""#
                             )
                             .unwrap();
                         if let Some(caps) = re.captures(&message) {
@@ -243,8 +247,28 @@ fn main() {
                                     let file_path = Path::new(&mount_point).join(
                                         format!("{}.{}", name, format)
                                     );
-                                    fs::write(&file_path, data).unwrap();
+                                    let decoded_bytes: Vec<u8> = data
+                                        .split(',')
+                                        .filter_map(|s| s.parse::<u8>().ok())
+                                        .collect();
+                                    fs::write(&file_path, decoded_bytes).unwrap();
                                     send_message(r#""File created successfully""#).unwrap();
+                                    // match
+                                    //     save_binary_file(
+                                    //         data,
+                                    //         file_path.as_os_str().to_str().unwrap()
+                                    //     )
+                                    // {
+                                    //     Ok(_) =>
+                                    //         send_message(r#""File created successfully""#).unwrap(),
+                                    //     Err(e) => {
+                                    //         let message = format!(
+                                    //             r#""Failed to create file: {}""#,
+                                    //             e.to_string()
+                                    //         );
+                                    //         send_message(&message).unwrap();
+                                    //     }
+                                    // }
                                 }
                                 None => {
                                     send_message(r#""Device not found or not mounted""#).unwrap();
@@ -354,6 +378,10 @@ fn find_mount_point(target_vid: &str) -> Option<String> {
         }
     }
 
+    None
+}
+#[cfg(target_os = "windows")]
+fn find_mount_point(target_vid: &str) -> Option<String> {
     None
 }
 
@@ -557,7 +585,93 @@ fn find_macos_mount_point(vid: &str, pid: &str, disk_info: &str) -> Option<Strin
 
     current_mount_point
 }
+#[cfg(target_os = "windows")]
+fn find_mount_point(target_vid: &str) -> Option<String> {
+    let usb_devices = get_usb_devices().unwrap_or_default();
 
+    for device in usb_devices {
+        if device.vendor_id.eq_ignore_ascii_case(target_vid) {
+            return device.mount_point;
+        }
+    }
+
+    None
+}
+#[cfg(target_os = "windows")]
+fn get_usb_devices() -> Result<Vec<UsbDevice>, Box<dyn Error>> {
+    let mut devices = Vec::new();
+
+    // Get USB devices using wmic
+    let output = Command::new("wmic")
+        .args(&["path", "Win32_USBControllerDevice", "get", "Dependent"])
+        .output()?;
+
+    let usb_output = String::from_utf8(output.stdout)?;
+
+    // Parse the output for VID and PID
+    let mut current_vid = String::new();
+    let mut current_pid = String::new();
+
+    for line in usb_output.lines() {
+        let line = line.trim();
+        if line.contains("VID_") && line.contains("PID_") {
+            if let Some(start) = line.find("VID_") {
+                current_vid = line[start + 4..start + 8].to_string();
+            }
+            if let Some(start) = line.find("PID_") {
+                current_pid = line[start + 4..start + 8].to_string();
+            }
+        }
+
+        if !current_vid.is_empty() && !current_pid.is_empty() {
+            let mount_point = find_windows_mount_point(&current_vid, &current_pid);
+            devices.push(UsbDevice {
+                vendor_id: current_vid.clone(),
+                product_id: current_pid.clone(),
+                mount_point,
+            });
+
+            current_vid.clear();
+            current_pid.clear();
+        }
+    }
+
+    Ok(devices)
+}
+
+#[cfg(target_os = "windows")]
+fn find_windows_mount_point(vid: &str, pid: &str) -> Option<String> {
+    // Use PowerShell to get mounted USB drives
+    let output = Command::new("powershell")
+        .arg("-Command")
+        .arg(
+            "Get-WmiObject Win32_DiskDrive | Where-Object {$_.PNPDeviceID -match 'VID_'} | ForEach-Object { $_.DeviceID }"
+        )
+        .output()
+        .ok()?;
+
+    let drive_output = String::from_utf8(output.stdout).ok()?;
+
+    for line in drive_output.lines() {
+        let line = line.trim();
+        if line.contains(&format!("VID_{}", vid)) && line.contains(&format!("PID_{}", pid)) {
+            let mount_output = Command::new("wmic")
+                .args(&["logicaldisk", "get", "DeviceID"])
+                .output()
+                .ok()?;
+
+            let mount_info = String::from_utf8(mount_output.stdout).ok()?;
+            for mount_line in mount_info.lines() {
+                let mount_line = mount_line.trim();
+                if mount_line.contains(":\\") {
+                    return Some(mount_line.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
 #[cfg(target_os = "windows")]
 fn get_usb_devices() -> Result<Vec<UsbDevice>, Box<dyn Error>> {
     let mut devices = Vec::new();
