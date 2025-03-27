@@ -9,6 +9,8 @@ use std::io::{ BufRead, BufReader };
 use std::thread;
 use std::process;
 use std::io::{ self, Read, Write };
+use base64::{ engine::general_purpose::STANDARD, Engine };
+
 #[derive(Debug)]
 struct UsbDevice {
     vendor_id: String,
@@ -80,74 +82,6 @@ fn main() {
     if let Err(e) = send_message(r#""Running ...""#) {
         // error!("Failed to send initial message: {}", e);
     }
-    // let matches = clap::Command
-    //     ::new("plode")
-    //     .version("0.1.0")
-    //     .author("Goutham <goutham@yudurobotics.com>")
-    //     .about("USB device file manager")
-    //     .subcommand(
-    //         clap::Command
-    //             ::new("list")
-    //             .about("Lists all files in the mount point of the specified USB device")
-    //             .arg(
-    //                 clap::Arg
-    //                     ::new("pid")
-    //                     .short('p')
-    //                     .long("pid")
-    //                     .value_name("PID")
-    //                     .help("Product ID of the USB device")
-    //                     .required(true)
-    //             )
-    //     )
-    //     .subcommand(
-    //         clap::Command
-    //             ::new("remove")
-    //             .about("Removes a file from the mount point of the specified USB device")
-    //             .arg(
-    //                 clap::Arg
-    //                     ::new("pid")
-    //                     .short('p')
-    //                     .long("pid")
-    //                     .value_name("PID")
-    //                     .help("Product ID of the USB device")
-    //                     .required(true)
-    //             )
-    //             .arg(
-    //                 clap::Arg
-    //                     ::new("file")
-    //                     .short('f')
-    //                     .long("file")
-    //                     .value_name("FILE")
-    //                     .help("File path to remove from the USB device")
-    //                     .required(true)
-    //             )
-    //     )
-    //     .subcommand(
-    //         clap::Command
-    //             ::new("add")
-    //             .about("Adds a file to the USB device")
-    //             .arg(clap::Arg::new("pid").short('p').long("pid").required(true).help("Product ID"))
-    //             .arg(
-    //                 clap::Arg::new("name").short('n').long("name").required(true).help("File name")
-    //             )
-    //             .arg(
-    //                 clap::Arg
-    //                     ::new("format")
-    //                     .short('f')
-    //                     .long("format")
-    //                     .required(true)
-    //                     .help("File format")
-    //             )
-    //             .arg(
-    //                 clap::Arg
-    //                     ::new("data")
-    //                     .short('d')
-    //                     .long("data")
-    //                     .required(true)
-    //                     .help("File content")
-    //             )
-    //     )
-    //     .get_matches();
     // Setup a channel to receive messages from the reader thread.
     let (tx, rx) = channel();
 
@@ -190,6 +124,7 @@ fn main() {
                                             );
                                             send_message(&message).unwrap();
                                         }
+                                        send_message(r#""END""#).unwrap();
                                     }
                                     Err(e) => {
                                         let message = format!(
@@ -197,6 +132,7 @@ fn main() {
                                             e.to_string()
                                         );
                                         send_message(&message).unwrap();
+                                        send_message(r#""END""#).unwrap();
                                     }
                                 }
                             }
@@ -207,7 +143,43 @@ fn main() {
                                     pid
                                 );
                                 send_message(&message).unwrap();
+                                send_message(r#""END""#).unwrap();
                             }
+                        }
+                    }
+                    command if command.starts_with(r#""open"#) => {
+                        let re = regex::Regex::new(r#""open\s+--loc\s+\\"([^"]+)\\"""#).unwrap();
+                        if let Some(caps) = re.captures(&message) {
+                            let location = &caps[1];
+                            if Path::new(location).exists() {
+                                send_message(
+                                    &format!(r#""File at location '{}' opened successfully""#, location)
+                                ).unwrap();
+
+                                match fs::read(location) {
+                                    Ok(file_data) => {
+                                        let base64_string = STANDARD.encode(&file_data);
+                                        send_message(
+                                            &format!(r#""File base64: {}""#, base64_string)
+                                        ).unwrap();
+                                        send_message(r#""END""#).unwrap();
+                                    }
+                                    Err(e) => {
+                                        send_message(
+                                            &format!(r#""Failed to read file data: {}""#, e)
+                                        ).unwrap();
+                                        send_message(r#""END""#).unwrap();
+                                    }
+                                }
+                            } else {
+                                send_message(
+                                    r#""File not found at the specified location""#
+                                ).unwrap();
+                                send_message(r#""END""#).unwrap();
+                            }
+                        } else {
+                            send_message(r#""Invalid open command format""#).unwrap();
+                            send_message(r#""END""#).unwrap();
                         }
                     }
                     command if command.starts_with(r#""rm"#) => {
@@ -220,16 +192,20 @@ fn main() {
                                     if file_path.exists() {
                                         fs::remove_file(&file_path).unwrap();
                                         send_message(r#""File removed successfully""#).unwrap();
+                                        send_message(r#""END""#).unwrap();
                                     } else {
                                         send_message(r#""File not found""#).unwrap();
+                                        send_message(r#""END""#).unwrap();
                                     }
                                 }
                                 None => {
                                     send_message(r#""Device not found or not mounted""#).unwrap();
+                                    send_message(r#""END""#).unwrap();
                                 }
                             }
                         } else {
                             send_message(r#""Invalid rm command format""#).unwrap();
+                            send_message(r#""END""#).unwrap();
                         }
                     }
                     command if command.starts_with(r#""add"#) => {
@@ -253,35 +229,23 @@ fn main() {
                                         .collect();
                                     fs::write(&file_path, decoded_bytes).unwrap();
                                     send_message(r#""File created successfully""#).unwrap();
-                                    // match
-                                    //     save_binary_file(
-                                    //         data,
-                                    //         file_path.as_os_str().to_str().unwrap()
-                                    //     )
-                                    // {
-                                    //     Ok(_) =>
-                                    //         send_message(r#""File created successfully""#).unwrap(),
-                                    //     Err(e) => {
-                                    //         let message = format!(
-                                    //             r#""Failed to create file: {}""#,
-                                    //             e.to_string()
-                                    //         );
-                                    //         send_message(&message).unwrap();
-                                    //     }
-                                    // }
+                                    send_message(r#""END""#).unwrap();
                                 }
                                 None => {
                                     send_message(r#""Device not found or not mounted""#).unwrap();
+                                    send_message(r#""END""#).unwrap();
                                 }
                             }
                         } else {
                             send_message(r#""Invalid add command format""#).unwrap();
+                            send_message(r#""END""#).unwrap();
                         }
                     }
                     r#""exit""# => process::exit(0),
 
                     _ => {
                         send_message(&(message.clone() + "test")).unwrap();
+                        send_message(r#""END""#).unwrap();
                     }
                 }
             }
@@ -295,73 +259,95 @@ fn main() {
     let _ = reader.join();
 
     process::exit(0);
+}
+#[cfg(target_os = "macos")]
+fn get_usb_devices() -> Result<Vec<UsbDevice>, Box<dyn Error>> {
+    let mut devices = Vec::new();
 
-    // match matches.subcommand() {
-    //     Some(("list", sub_m)) => {
-    //         if let Some(pid) = sub_m.get_one::<String>("pid") {
-    //             match find_mount_point(target_vid, pid) {
-    //                 Some(mount_point) => {
-    //                     println!(
-    //                         "Device VID:{} PID:{} is mounted at: {}",
-    //                         target_vid,
-    //                         pid,
-    //                         mount_point
-    //                     );
-    //                     let paths = fs::read_dir(mount_point)?;
-    //                     for path in paths {
-    //                         println!("File: {}", path?.path().display());
-    //                     }
-    //                 }
-    //                 None =>
-    //                     println!("Device VID:{} PID:{} not found or not mounted", target_vid, pid),
-    //             }
-    //         }
-    //     }
-    //     Some(("remove", sub_m)) => {
-    //         if let Some(pid) = sub_m.get_one::<String>("pid") {
-    //             if let Some(file) = sub_m.get_one::<String>("file") {
-    //                 match find_mount_point(target_vid, pid) {
-    //                     Some(mount_point) => {
-    //                         let file_path = Path::new(&mount_point).join(file);
-    //                         if file_path.exists() {
-    //                             fs::remove_file(&file_path)?;
-    //                             println!("File {} removed successfully", file_path.display());
-    //                         } else {
-    //                             println!("File {} not found", file_path.display());
-    //                         }
-    //                     }
-    //                     None =>
-    //                         println!(
-    //                             "Device VID:{} PID:{} not found or not mounted",
-    //                             target_vid,
-    //                             pid
-    //                         ),
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     Some(("add", sub_m)) => {
-    //         if let Some(pid) = sub_m.get_one::<String>("pid") {
-    //             if let Some(name) = sub_m.get_one::<String>("name") {
-    //                 if let Some(format) = sub_m.get_one::<String>("format") {
-    //                     if let Some(data) = sub_m.get_one::<String>("data") {
-    //                         if let Some(mount_point) = find_mount_point(target_vid, pid) {
-    //                             let file_path = Path::new(&mount_point).join(
-    //                                 format!("{}.{}", name, format)
-    //                             );
-    //                             fs::write(&file_path, data)?;
-    //                             println!("File {} created successfully", file_path.display());
-    //                         } else {
-    //                             println!("Device not found or not mounted");
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     _ => {}
-    // }
-    // Ok(())
+    // Get USB devices using system_profiler
+    let output = Command::new("system_profiler").arg("SPUSBDataType").output()?;
+
+    let usb_output = String::from_utf8(output.stdout)?;
+    // Get disk info using diskutil
+    // let disk_output = Command::new("diskutil").arg("diskutil").output()?;
+
+    // let disk_info = String::from_utf8(disk_output.stdout)?;
+
+    // Parse system_profiler output to get VID/PID
+    // This is a simplified version - macOS output requires more complex parsing
+    let mut current_vid = String::new();
+    let mut current_pid = String::new();
+
+    for line in usb_output.lines() {
+        let line = line.trim();
+
+        if line.contains("Vendor ID:") {
+            current_vid = line
+                .split(":")
+                .nth(1)
+                .unwrap_or("")
+                .trim()
+                .split(" ")
+                .next()
+                .unwrap_or("")
+                .to_string();
+        }
+
+        if line.contains("Product ID:") {
+            current_pid = line
+                .split(":")
+                .nth(1)
+                .unwrap_or("")
+                .trim()
+                .split(" ")
+                .next()
+                .unwrap_or("")
+                .to_string();
+        }
+
+        // When we have both VID and PID, try to find mount point
+        if !current_vid.is_empty() && !current_pid.is_empty() {
+            // This is a simplified approach - would need more complex parsing for real macOS implementation
+            devices.push(UsbDevice {
+                vendor_id: current_vid.clone(),
+                product_id: current_pid.clone(),
+                mount_point: find_macos_mount_point("0xb1b0", "0x8055", &usb_output),
+            });
+
+            current_vid.clear();
+            current_pid.clear();
+        }
+    }
+
+    Ok(devices)
+}
+#[cfg(target_os = "macos")]
+fn find_macos_mount_point(vid: &str, pid: &str, disk_info: &str) -> Option<String> {
+    let mut current_mount_point = None;
+    let mut found_vid = false;
+    let mut found_pid = false;
+
+    for line in disk_info.lines() {
+        let line = line.trim();
+        if line.contains("Vendor ID:") && line.contains(vid) {
+            found_vid = true;
+        }
+
+        if line.contains("Product ID:") && line.contains(pid) {
+            found_pid = true;
+        }
+        if found_vid && found_pid && line.starts_with("Mount Point:") {
+            current_mount_point = Some(line.split(":").nth(1)?.trim().to_string());
+            break;
+        }
+
+        if line.is_empty() {
+            found_vid = false;
+            found_pid = false;
+        }
+    }
+
+    current_mount_point
 }
 #[cfg(target_os = "macos")]
 fn find_mount_point(target_vid: &str) -> Option<String> {
@@ -380,10 +366,10 @@ fn find_mount_point(target_vid: &str) -> Option<String> {
 
     None
 }
-#[cfg(target_os = "windows")]
-fn find_mount_point(target_vid: &str) -> Option<String> {
-    None
-}
+// #[cfg(target_os = "windows")]
+// fn find_mount_point(target_vid: &str) -> Option<String> {
+//     None
+// }
 
 #[cfg(target_os = "linux")]
 fn get_usb_devices() -> Result<Vec<UsbDevice>, Box<dyn Error>> {
@@ -496,219 +482,24 @@ fn get_mount_points() -> Result<HashMap<String, String>, Box<dyn Error>> {
     Ok(mounts)
 }
 
-#[cfg(target_os = "macos")]
-fn get_usb_devices() -> Result<Vec<UsbDevice>, Box<dyn Error>> {
-    let mut devices = Vec::new();
-
-    // Get USB devices using system_profiler
-    let output = Command::new("system_profiler").arg("SPUSBDataType").output()?;
-
-    let usb_output = String::from_utf8(output.stdout)?;
-    // Get disk info using diskutil
-    // let disk_output = Command::new("diskutil").arg("diskutil").output()?;
-
-    // let disk_info = String::from_utf8(disk_output.stdout)?;
-
-    // Parse system_profiler output to get VID/PID
-    // This is a simplified version - macOS output requires more complex parsing
-    let mut current_vid = String::new();
-    let mut current_pid = String::new();
-
-    for line in usb_output.lines() {
-        let line = line.trim();
-
-        if line.contains("Vendor ID:") {
-            current_vid = line
-                .split(":")
-                .nth(1)
-                .unwrap_or("")
-                .trim()
-                .split(" ")
-                .next()
-                .unwrap_or("")
-                .to_string();
-        }
-
-        if line.contains("Product ID:") {
-            current_pid = line
-                .split(":")
-                .nth(1)
-                .unwrap_or("")
-                .trim()
-                .split(" ")
-                .next()
-                .unwrap_or("")
-                .to_string();
-        }
-
-        // When we have both VID and PID, try to find mount point
-        if !current_vid.is_empty() && !current_pid.is_empty() {
-            // This is a simplified approach - would need more complex parsing for real macOS implementation
-            devices.push(UsbDevice {
-                vendor_id: current_vid.clone(),
-                product_id: current_pid.clone(),
-                mount_point: find_macos_mount_point("0xb1b0", "0x8055", &usb_output),
-            });
-
-            current_vid.clear();
-            current_pid.clear();
-        }
-    }
-
-    Ok(devices)
-}
-#[cfg(target_os = "macos")]
-fn find_macos_mount_point(vid: &str, pid: &str, disk_info: &str) -> Option<String> {
-    let mut current_mount_point = None;
-    let mut found_vid = false;
-    let mut found_pid = false;
-
-    for line in disk_info.lines() {
-        let line = line.trim();
-        if line.contains("Vendor ID:") && line.contains(vid) {
-            found_vid = true;
-        }
-
-        if line.contains("Product ID:") && line.contains(pid) {
-            found_pid = true;
-        }
-        if found_vid && found_pid && line.starts_with("Mount Point:") {
-            current_mount_point = Some(line.split(":").nth(1)?.trim().to_string());
-            break;
-        }
-
-        if line.is_empty() {
-            found_vid = false;
-            found_pid = false;
-        }
-    }
-
-    current_mount_point
-}
 #[cfg(target_os = "windows")]
 fn find_mount_point(target_vid: &str) -> Option<String> {
-    let usb_devices = get_usb_devices().unwrap_or_default();
-
-    for device in usb_devices {
-        if device.vendor_id.eq_ignore_ascii_case(target_vid) {
-            return device.mount_point;
-        }
+    let ps_script =
+        r#"
+    $usbDisk = Get-Disk | Where-Object { $_.FriendlyName -eq 'TinyUSB Flash Storage' }
+    if ($usbDisk) {
+        $logicalDrive = Get-Partition -DiskNumber $usbDisk.Number | Get-Volume | Select-Object -ExpandProperty DriveLetter
+        Write-Output $logicalDrive
     }
+    "#;
 
-    None
-}
-#[cfg(target_os = "windows")]
-fn get_usb_devices() -> Result<Vec<UsbDevice>, Box<dyn Error>> {
-    let mut devices = Vec::new();
+    let output = Command::new("powershell").args(["-Command", ps_script]).output().ok()?; // Returns None if the command fails
 
-    // Get USB devices using wmic
-    let output = Command::new("wmic")
-        .args(&["path", "Win32_USBControllerDevice", "get", "Dependent"])
-        .output()?;
+    let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-    let usb_output = String::from_utf8(output.stdout)?;
-
-    // Parse the output for VID and PID
-    let mut current_vid = String::new();
-    let mut current_pid = String::new();
-
-    for line in usb_output.lines() {
-        let line = line.trim();
-        if line.contains("VID_") && line.contains("PID_") {
-            if let Some(start) = line.find("VID_") {
-                current_vid = line[start + 4..start + 8].to_string();
-            }
-            if let Some(start) = line.find("PID_") {
-                current_pid = line[start + 4..start + 8].to_string();
-            }
-        }
-
-        if !current_vid.is_empty() && !current_pid.is_empty() {
-            let mount_point = find_windows_mount_point(&current_vid, &current_pid);
-            devices.push(UsbDevice {
-                vendor_id: current_vid.clone(),
-                product_id: current_pid.clone(),
-                mount_point,
-            });
-
-            current_vid.clear();
-            current_pid.clear();
-        }
+    if result.is_empty() {
+        None
+    } else {
+        Some(result + ":/") // Appends ":" to match standard drive notation
     }
-
-    Ok(devices)
-}
-
-#[cfg(target_os = "windows")]
-fn find_windows_mount_point(vid: &str, pid: &str) -> Option<String> {
-    // Use PowerShell to get mounted USB drives
-    let output = Command::new("powershell")
-        .arg("-Command")
-        .arg(
-            "Get-WmiObject Win32_DiskDrive | Where-Object {$_.PNPDeviceID -match 'VID_'} | ForEach-Object { $_.DeviceID }"
-        )
-        .output()
-        .ok()?;
-
-    let drive_output = String::from_utf8(output.stdout).ok()?;
-
-    for line in drive_output.lines() {
-        let line = line.trim();
-        if line.contains(&format!("VID_{}", vid)) && line.contains(&format!("PID_{}", pid)) {
-            let mount_output = Command::new("wmic")
-                .args(&["logicaldisk", "get", "DeviceID"])
-                .output()
-                .ok()?;
-
-            let mount_info = String::from_utf8(mount_output.stdout).ok()?;
-            for mount_line in mount_info.lines() {
-                let mount_line = mount_line.trim();
-                if mount_line.contains(":\\") {
-                    return Some(mount_line.to_string());
-                }
-            }
-        }
-    }
-
-    None
-}
-#[cfg(target_os = "windows")]
-fn get_usb_devices() -> Result<Vec<UsbDevice>, Box<dyn Error>> {
-    let mut devices = Vec::new();
-
-    // On Windows, we would use PowerShell commands or WMI queries
-    // to get the USB device information
-
-    // Example PowerShell command (would need to be implemented)
-    let output = Command::new("powershell")
-        .arg("-Command")
-        .arg(
-            "Get-PnpDevice -Class 'USB' | Where-Object { $_.Status -eq 'OK' } | Select-Object FriendlyName, DeviceID"
-        )
-        .output()?;
-
-    let device_output = String::from_utf8(output.stdout)?;
-
-    // Get drive letters with PowerShell
-    let mount_output = Command::new("powershell")
-        .arg("-Command")
-        .arg(
-            "Get-WmiObject -Class Win32_DiskDrive | ForEach-Object { $drive = $_; Get-WmiObject -Class Win32_DiskPartition -Filter \"DiskIndex=$($drive.Index)\" | ForEach-Object { Get-WmiObject -Class Win32_LogicalDisk -Filter \"DeviceID='$($_.DeviceID)'\" | Select-Object DeviceID, VolumeName } }"
-        )
-        .output()?;
-
-    let mount_info = String::from_utf8(mount_output.stdout)?;
-
-    // This is a simplified version - Windows output requires more complex parsing
-    // In a real implementation, you would need to parse the DeviceID to extract VID/PID
-    // and correlate with the mount points
-
-    // Placeholder for demonstration
-    devices.push(UsbDevice {
-        vendor_id: "example".to_string(),
-        product_id: "example".to_string(),
-        mount_point: Some("C:\\".to_string()),
-    });
-
-    Ok(devices)
 }
