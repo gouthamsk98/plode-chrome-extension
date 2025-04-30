@@ -2,7 +2,7 @@
 
 set -e  # Exit on error
 
-APP_NAME="plode"
+APP_NAME="plode_mass_storage"
 IDENTIFIER="com.$APP_NAME"
 VERSION="0.1"
 PKG_NAME="$APP_NAME.pkg"

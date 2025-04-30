@@ -1,9 +1,0 @@
-{
-  "name": "com.plode.native",
-  "description": "Native messaging host for plode",
-  "path": "/usr/local/bin/plode",
-  "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://knldjmfmopnpolahpmmgbagdohdnhkik/"
-  ]
-}
