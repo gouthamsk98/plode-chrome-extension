@@ -29,3 +29,10 @@ pub struct UsbAddFileRequest {
     pub path: Option<String>,
     pub data: String,
 }
+
+// Request structures
+#[derive(Deserialize)]
+pub struct ArduinoCommand {
+    pub command: String,
+    pub args: Vec<String>,
+}

@@ -1,5 +1,5 @@
 [package]
-name = "plode_mass_storage"
+name = "plode_web_agent"
 version = "0.1.0"
 edition = "2024"
 

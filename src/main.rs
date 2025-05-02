@@ -3,11 +3,21 @@ use socketioxide::SocketIo;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 use tower_http::cors::{ CorsLayer, Any };
-use plode_mass_storage::socketio::on_connect;
+use plode_web_agent::socketio::on_connect;
+use plode_web_agent::compiler::health_check;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(FmtSubscriber::default())?;
+    // Health check for arduino-cli
+    match health_check() {
+        true => info!("arduino-cli initialized successfully"),
+        false => {
+            info!("arduino-cli test failed");
+            std::process::exit(1);
+        }
+    }
+
     let (socketio_layer, io) = SocketIo::new_layer();
     io.ns("/", on_connect);
     #[cfg(debug_assertions)]

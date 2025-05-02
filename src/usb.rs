@@ -7,26 +7,131 @@ use chrono::{ DateTime, Local };
 use serde::{ Deserialize, Serialize };
 use std::time::SystemTime;
 use crate::models::*;
-// Constants for target USB device
-const TARGET_VID: &str = "0xb1b0";
-const TARGET_PID: &str = "0x8055";
+use base64::{ engine::general_purpose::STANDARD, Engine };
 
+//Eject a USB device
+#[cfg(target_os = "macos")]
+pub fn eject_usb(path: &str) -> Result<String, Box<dyn Error>> {
+    let output = Command::new("diskutil").arg("eject").arg(path).output()?;
+
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(result)
+    } else {
+        let error = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("Error ejecting USB device: {}", error).into())
+    }
+}
+#[cfg(target_os = "windows")]
+pub fn eject_usb(path: &str) -> Result<String, Box<dyn Error>> {
+    let output = Command::new("powershell")
+        .args(["-Command", "Get-Volume", "-DriveLetter", path])
+        .output()?;
+
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(result)
+    } else {
+        let error = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("Error ejecting USB device: {}", error).into())
+    }
+}
+#[cfg(target_os = "linux")]
+pub fn eject_usb(path: &str) -> Result<String, Box<dyn Error>> {
+    let output = Command::new("eject").arg(path).output()?;
+
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(result)
+    } else {
+        let error = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("Error ejecting USB device: {}", error).into())
+    }
+}
+//mount a USB device with the specified VID
+#[cfg(target_os = "macos")]
+pub fn mount_usb(vid: &str) -> Result<String, Box<dyn Error>> {
+    let output = Command::new("diskutil").arg("mount").arg(vid).output()?;
+
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(result)
+    } else {
+        let error = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("Error mounting USB device: {}", error).into())
+    }
+}
+
+//Unmount a USB device
+#[cfg(target_os = "macos")]
+pub fn unmount_usb(path: &str) -> Result<String, Box<dyn Error>> {
+    let output = Command::new("diskutil").arg("unmount").arg(path).output()?;
+
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(result)
+    } else {
+        let error = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("Error unmounting USB device: {}", error).into())
+    }
+}
+#[cfg(target_os = "windows")]
+pub fn unmount_usb(path: &str) -> Result<String, Box<dyn Error>> {
+    let output = Command::new("powershell")
+        .args(["-Command", "Get-Volume", "-DriveLetter", path])
+        .output()?;
+
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(result)
+    } else {
+        let error = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("Error unmounting USB device: {}", error).into())
+    }
+}
+#[cfg(target_os = "linux")]
+pub fn unmount_usb(path: &str) -> Result<String, Box<dyn Error>> {
+    let output = Command::new("umount").arg(path).output()?;
+
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(result)
+    } else {
+        let error = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("Error unmounting USB device: {}", error).into())
+    }
+}
+
+// Read file content as base64 string
+pub fn read_file_as_base64(file_path: &str) -> Result<String, Box<dyn Error>> {
+    let file_data = fs::read(file_path)?;
+    Ok(STANDARD.encode(&file_data))
+}
 // Write data to a file on the USB device
-pub fn write_file(mount_point: &str, path: &str, data: &[u8]) -> Result<String, Box<dyn Error>> {
-    // Create the directory path and extract file path
-    let full_path = Path::new(mount_point).join(path);
+pub fn write_file(
+    path: &str,
+    name: &str,
+    format: &str,
+    data: &str
+) -> Result<String, Box<dyn Error>> {
+    // Create the directory path
+    let dir_path = Path::new(path);
 
     // Create directories if they don't exist
-    if let Some(parent) = full_path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent)?;
-        }
+    if !dir_path.exists() {
+        fs::create_dir_all(&dir_path)?;
     }
 
-    // Write the data
-    fs::write(&full_path, data)?;
+    // Create the full file path
+    let file_path = dir_path.join(format!("{}.{}", name, format));
 
-    Ok(full_path.display().to_string())
+    // Decode the base64 data
+    let decoded_data = STANDARD.decode(data)?;
+
+    // Write the decoded data as binary
+    fs::write(&file_path, decoded_data)?;
+
+    Ok(file_path.display().to_string())
 }
 
 // List directory contents recursively
