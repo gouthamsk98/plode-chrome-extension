@@ -1,7 +1,7 @@
-!define APP_NAME "plode"
+!define APP_NAME "plode_web_agent"
 !define INSTALL_DIR "C:\Program Files\${APP_NAME}"
 !define BIN_PATH "${INSTALL_DIR}\${APP_NAME}.exe"
-!define REG_KEY "Software\Google\Chrome\NativeMessagingHosts\com.${APP_NAME}.native"
+!define VBS_PATH "${INSTALL_DIR}\RunBackground.vbs"
 
 Outfile "${APP_NAME}_Installer.exe"
 InstallDir "${INSTALL_DIR}"
@@ -13,47 +13,62 @@ Section "Install"
     CreateDirectory "${INSTALL_DIR}"
 
     ; Copy the executable
-    File "target\x86_64-pc-windows-gnu\release\plode.exe"
-
-    ; Create JSON for Native Messaging
-    SetOutPath "$APPDATA\Google\Chrome\NativeMessagingHosts"
+    File "plode_web_agent.exe"
     
-    FileOpen $0 "$APPDATA\Google\Chrome\NativeMessagingHosts\com.${APP_NAME}.native.json" w
-    FileWrite $0 '{$\r$\n'
-    FileWrite $0 ' "name": "com.${APP_NAME}.native",$\r$\n'
-    FileWrite $0 ' "description": "Native messaging host for ${APP_NAME}",$\r$\n'
-    FileWrite $0 ' "path$\": "C:\\Program Files\\${APP_NAME}\\${APP_NAME}.exe",$\r$\n'
-    FileWrite $0 ' "type": "stdio",$\r$\n'
-    FileWrite $0 ' "allowed_origins": [$\r$\n'
-    FileWrite $0 '    "chrome-extension://knldjmfmopnpolahpmmgbagdohdnhkik/$\"$\r$\n'
-    FileWrite $0 '  ]$\r$\n'
-    FileWrite $0 '}$\r$\n'
+    ; Create VBS script to run in background
+    FileOpen $0 "${VBS_PATH}" w
+    FileWrite $0 'Option Explicit$\r$\n$\r$\n'
+    FileWrite $0 'Dim exePath$\r$\n'
+    FileWrite $0 'exePath = "${BIN_PATH}"$\r$\n$\r$\n'
+    FileWrite $0 'Dim arguments$\r$\n'
+    FileWrite $0 'arguments = "--background"$\r$\n$\r$\n'
+    FileWrite $0 'RunInBackground exePath, arguments$\r$\n$\r$\n'
+    FileWrite $0 'Sub RunInBackground(path, args)$\r$\n'
+    FileWrite $0 '    Dim shell, command$\r$\n'
+    FileWrite $0 '    $\r$\n'
+    FileWrite $0 '    Set shell = CreateObject("WScript.Shell")$\r$\n'
+    FileWrite $0 '    $\r$\n'
+    FileWrite $0 '    command = """" & path & """"$\r$\n'
+    FileWrite $0 '    $\r$\n'
+    FileWrite $0 '    If Len(args) > 0 Then$\r$\n'
+    FileWrite $0 '        command = command & " " & args$\r$\n'
+    FileWrite $0 '    End If$\r$\n'
+    FileWrite $0 '    $\r$\n'
+    FileWrite $0 '    shell.Run command, 0, False$\r$\n'
+    FileWrite $0 '    $\r$\n'
+    FileWrite $0 '    Set shell = Nothing$\r$\n'
+    FileWrite $0 'End Sub$\r$\n'
     FileClose $0
 
-    ; Add registry entry using REG ADD
-    nsExec::Exec 'REG ADD "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.${APP_NAME}.native" /ve /t REG_SZ /d "$APPDATA\Google\Chrome\NativeMessagingHosts\com.${APP_NAME}.native.json" /f'
-
-    ; Create a scheduled task to run the app on startup
-    nsExec::Exec 'schtasks /Create /SC ONLOGON /TN "${APP_NAME}Startup" /TR "$\"${BIN_PATH}$\"" /RL HIGHEST /F'
-
-    ; Write the uninstaller inside the install section
+    ; Add to Windows startup registry (for current user) - pointing to VBS script
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_NAME}" '"${VBS_PATH}"'
+    
+    ; Add shortcut to Startup folder (alternative method)
+    CreateDirectory "$SMPROGRAMS\Startup"
+    CreateShortCut "$SMPROGRAMS\Startup\${APP_NAME}.lnk" "${VBS_PATH}"
+    
+    ; Write the uninstaller
     WriteUninstaller "${INSTALL_DIR}\Uninstall.exe"
 
-    MessageBox MB_OK "Installation Complete! The application is now installed."
+    ; Start application immediately in background mode using VBS
+    Exec '"cscript.exe" "${VBS_PATH}"'
+
+    MessageBox MB_OK "Installation Complete! ${APP_NAME} is now installed and will run automatically at startup."
 SectionEnd
 
 Section "Uninstall"
-    ; Remove executable
+    ; Kill any running instances before uninstalling
+    nsExec::Exec 'taskkill /F /IM ${APP_NAME}.exe'
+    
+    ; Remove files
     Delete "${BIN_PATH}"
+    Delete "${VBS_PATH}"
+    
+    ; Remove startup registry entry
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_NAME}"
 
-    ; Remove JSON configuration
-    Delete "$APPDATA\Google\Chrome\NativeMessagingHosts\com.${APP_NAME}.native.json"
-
-    ; Remove registry entry
-    nsExec::Exec 'REG DELETE "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.${APP_NAME}.native" /f'
-
-    ; Remove scheduled task
-    nsExec::Exec 'schtasks /Delete /TN "${APP_NAME}Startup" /F'
+    ; Remove startup shortcut
+    Delete "$SMPROGRAMS\Startup\${APP_NAME}.lnk"
 
     ; Remove installation directory
     RMDir /r "${INSTALL_DIR}"
