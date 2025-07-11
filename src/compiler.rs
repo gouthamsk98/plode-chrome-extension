@@ -9,7 +9,7 @@ static ARDUINO_CLI_BINARY: &[u8] = include_bytes!("../resource/linux/arduino-cli
 #[cfg(target_os = "windows")]
 static ARDUINO_CLI_BINARY: &[u8] = include_bytes!("../resource/windows/arduino-cli.exe"); // Change this if needed
 #[cfg(target_os = "macos")]
-static ARDUINO_CLI_BINARY: &[u8] = include_bytes!("../resource/macos/arduino-cli"); // Change this if needed
+static ARDUINO_CLI_BINARY: &[u8] = include_bytes!("../resource/macOS_x86_64/arduino-cli"); // Change this if needed
 static ARDUINO_CLI_PATH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 // Function to initialize the arduino-cli binary
@@ -75,9 +75,16 @@ pub async fn run_arduino_command(command: &ArduinoCommand) -> CommandResponse {
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
+            // Try to parse stdout as JSON, fallback to string if parsing fails
+            let parsed_output = match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Some(json),
+                Err(_) => None,
+            };
+
             CommandResponse {
                 success: output.status.success(),
                 output: stdout,
+                output_json: parsed_output,
                 files: None,
                 error: if stderr.is_empty() {
                     None
@@ -92,6 +99,7 @@ pub async fn run_arduino_command(command: &ArduinoCommand) -> CommandResponse {
             CommandResponse {
                 success: false,
                 output: String::new(),
+                output_json: None,
                 files: None,
                 error: Some(format!("Failed to execute command: {}", e)),
                 command: cmd_name.clone(),

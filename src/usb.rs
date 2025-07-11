@@ -130,7 +130,7 @@ pub fn write_file(
 
     // Write the decoded data as binary
     fs::write(&file_path, decoded_data)?;
-
+    println!("File written successfully: {}", file_path.display());
     Ok(file_path.display().to_string())
 }
 
@@ -310,22 +310,21 @@ fn find_windows_mount_point(vid: &str) -> Option<String> {
     info!("Looking for USB device with VID: {}", vid);
 
     let ps_script = format!(
-        r#"
-    $usbDevices = Get-PnpDevice -Class USB | Where-Object {{ $_.DeviceID -match "VID_{}" }}
-    if ($usbDevices) {{
+        r#"$usbDevices = Get-PnpDevice -Class USB | Where-Object {{ $_.InstanceId.Contains("VID_{}") }}   
+if ($usbDevices) {{
         foreach ($device in $usbDevices) {{
-            $devicePath = $device.DeviceID
-            $drive = Get-WmiObject Win32_DiskDrive | Where-Object {{ $_.PNPDeviceID -eq $devicePath }} | 
-                     Get-WmiObject -Query "ASSOCIATORS OF {{Win32_DiskDrive.DeviceID='$($_.DeviceID)'}} WHERE AssocClass = Win32_DiskDriveToDiskPartition" |
-                     Get-WmiObject -Query "ASSOCIATORS OF {{Win32_DiskPartition.DeviceID='$($_.DeviceID)'}} WHERE AssocClass = Win32_LogicalDiskToPartition" |
+            
+            $driveDetails = Get-WmiObject Win32_DiskDrive | Where-Object {{ $_.Caption.Contains("TinyUSB") }}
+            $driveName = Get-WmiObject -Query "ASSOCIATORS OF {{Win32_DiskDrive.DeviceID='$($driveDetails.DeviceID)'}} WHERE AssocClass = Win32_DiskDriveToDiskPartition"
+            $drive = Get-WmiObject -Query "ASSOCIATORS OF {{Win32_DiskPartition.DeviceID='$($driveName.DeviceID)'}} WHERE AssocClass = Win32_LogicalDiskToPartition" |
                      Select-Object DeviceID
             
             if ($drive) {{
                 Write-Output $drive.DeviceID
+                break
             }}
-        }}
-    }}
-    "#,
+}}
+}}"#,
         vid.trim_start_matches("0x")
     );
 

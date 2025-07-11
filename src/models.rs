@@ -4,6 +4,7 @@ use serde::{ de, Deserialize, Serialize };
 pub struct CommandResponse {
     pub success: bool,
     pub output: String,
+    pub output_json: Option<serde_json::Value>,
     pub files: Option<Vec<FileResponse>>,
     pub error: Option<String>,
     pub command: String,
