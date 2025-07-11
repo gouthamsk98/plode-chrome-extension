@@ -6,6 +6,104 @@ A native application that provides communication between web extensions and hard
 
 This document outlines all available Socket.IO commands that can be used to interact with the Plode application.
 
+### Core Events
+
+#### `version`
+
+Requests the version of the Plode application.
+
+**Request:**
+
+```javascript
+socket.emit("version", (response) => {
+  console.log(response);
+});
+```
+
+**Response:**
+
+```javascript
+"1.0.0" // Current version string
+```
+
+#### `device-connected`
+
+**Server-to-Client Event:** Automatically emitted when a device connection status changes. This event is sent from the server to clients and cannot be triggered by the client.
+
+**Event Data:**
+
+```javascript
+// Listen for device connection changes
+socket.on("device-connected", (connected) => {
+  console.log("Device connected:", connected);
+  // Update UI based on connection status
+});
+```
+
+**Data Structure:**
+
+```javascript
+true  // Device is connected
+false // Device is disconnected
+```
+
+#### `connect-device`
+
+Connects to a specific device using its port address.
+
+**Request:**
+
+```javascript
+socket.emit("connect-device", { port_address: "/dev/ttyUSB0" }, (response) => {
+  console.log(response);
+});
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "/dev/ttyUSB0",
+  output_json: null,
+  files: null,
+  error: null,
+  command: "connect",
+  args: ["/dev/ttyUSB0"]
+}
+```
+
+#### `logs`
+
+**Server-to-Client Event:** Automatically emitted log events from the Arduino CLI operations. This event is sent from the server to clients and cannot be triggered by the client.
+
+**Usage:**
+
+```javascript
+// Listen for log events
+socket.on("logs", (logData) => {
+  console.log("Log:", logData);
+  // Process log data for UI display
+});
+```
+
+**Event Data:**
+
+```javascript
+// For JSON log entries from Arduino CLI
+{
+  level: "info",
+  message: "Compilation completed successfully",
+  timestamp: "2025-01-01T00:00:00Z"
+}
+
+// For plain text log entries
+{
+  message: "Plain text log message",
+  timestamp: "2025-01-01T00:00:00Z"
+}
+```
+
 ### USB Operations
 
 Commands for interacting with USB mass storage devices:
@@ -204,6 +302,7 @@ socket.emit("list-boards", (response) => {
 {
   success: true,
   output: "JSON output from Arduino CLI",
+  output_json: { /* Parsed JSON object with board information */ },
   files: null,
   error: null,
   command: "board",
@@ -229,6 +328,7 @@ socket.emit("list-connected", (response) => {
 {
   success: true,
   output: "JSON output from Arduino CLI",
+  output_json: { /* Parsed JSON object with connected board information */ },
   files: null,
   error: null,
   command: "board",
@@ -254,6 +354,7 @@ socket.emit("list-cores", (response) => {
 {
   success: true,
   output: "JSON output from Arduino CLI",
+  output_json: { /* Parsed JSON object with core information */ },
   files: null,
   error: null,
   command: "core",
@@ -263,7 +364,7 @@ socket.emit("list-cores", (response) => {
 
 #### `install-core`
 
-Installs an Arduino core.
+Installs an Arduino core with logging enabled.
 
 **Request:**
 
@@ -273,22 +374,210 @@ socket.emit("install-core", { core: "arduino:avr" }, (response) => {
 });
 ```
 
+**Common core packages:**
+
+- `arduino:avr` - Arduino AVR Boards (Uno, Nano, Pro Mini, etc.)
+- `arduino:megaavr` - Arduino megaAVR Boards (Uno WiFi Rev2, Nano Every)
+- `arduino:sam` - Arduino ARM (32-bits) Boards (Due)
+- `arduino:samd` - Arduino SAMD Boards (Zero, MKR series)
+- `esp32:esp32` - ESP32 boards
+- `esp8266:esp8266` - ESP8266 boards
+
 **Response:**
 
 ```javascript
 {
   success: true,
   output: "Output from Arduino CLI",
+  output_json: null,
   files: null,
   error: null,
   command: "core",
-  args: ["install", "arduino:avr"]
+  args: ["install", "arduino:avr", "--log", "--log-file", "log.txt"]
+}
+```
+
+#### `create-sketch`
+
+Creates a new Arduino sketch.
+
+**Request:**
+
+```javascript
+socket.emit("create-sketch", { sketch_name: "MySketch" }, (response) => {
+  console.log(response);
+});
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "JSON output from Arduino CLI",
+  output_json: { /* Parsed JSON object with sketch creation details */ },
+  files: null,
+  error: null,
+  command: "sketch",
+  args: ["new", "MySketch", "--format", "json"]
+}
+```
+
+#### `read-file` (Sketch Files)
+
+Reads a file from the sketches directory.
+
+**Request:**
+
+```javascript
+socket.emit(
+  "read-file",
+  {
+    sketch_name: "MySketch",
+    file_name: "MySketch.ino"
+  },
+  (response) => {
+    console.log(response);
+  }
+);
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "// File content here",
+  output_json: null,
+  files: null,
+  error: null,
+  command: "read-file",
+  args: ["/path/to/sketches/MySketch.ino"]
+}
+```
+
+#### `write-file` (Sketch Files)
+
+Writes content to a file in the sketches directory.
+
+**Request:**
+
+```javascript
+socket.emit(
+  "write-file",
+  {
+    sketch_name: "MySketch",
+    file_name: "MySketch.ino",
+    file_value: "void setup() {\n  // code\n}\n\nvoid loop() {\n  // code\n}"
+  },
+  (response) => {
+    console.log(response);
+  }
+);
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "Write operation is not implemented",
+  output_json: null,
+  files: null,
+  error: null,
+  command: "write-file",
+  args: []
+}
+```
+
+#### `delete-file` (Sketch Files)
+
+Deletes a file from the sketches directory.
+
+**Request:**
+
+```javascript
+socket.emit(
+  "delete-file",
+  {
+    sketch_name: "MySketch",
+    file_name: "MySketch.ino"
+  },
+  (response) => {
+    console.log(response);
+  }
+);
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "/path/to/sketches/MySketch/MySketch.ino",
+  output_json: null,
+  files: null,
+  error: null,
+  command: "delete-file",
+  args: ["/path/to/sketches/MySketch/MySketch.ino"]
+}
+```
+
+#### `list-sketches`
+
+Lists all available sketches in the sketches directory.
+
+**Request:**
+
+```javascript
+socket.emit("list-sketches", (response) => {
+  console.log(response);
+});
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "Sketches listed successfully",
+  output_json: ["MySketch", "AnotherSketch", "TestProject"],
+  files: null,
+  error: null,
+  command: "list-sketches",
+  args: []
+}
+```
+
+#### `remove-sketch`
+
+Removes an entire sketch directory and all its contents.
+
+**Request:**
+
+```javascript
+socket.emit("remove-sketch", { sketch_name: "MySketch" }, (response) => {
+  console.log(response);
+});
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "/path/to/sketches/MySketch",
+  output_json: null,
+  files: null,
+  error: null,
+  command: "remove-sketch",
+  args: ["/path/to/sketches/MySketch"]
 }
 ```
 
 #### `compile-sketch`
 
-Compiles an Arduino sketch.
+Compiles an Arduino sketch with logging enabled.
 
 **Request:**
 
@@ -296,7 +585,7 @@ Compiles an Arduino sketch.
 socket.emit(
   "compile-sketch",
   {
-    sketch_path: "/path/to/sketch.ino",
+    sketch_name: "MySketch",
     fqbn: "arduino:avr:uno", // Optional
   },
   (response) => {
@@ -305,22 +594,33 @@ socket.emit(
 );
 ```
 
+**Common FQBN (Fully Qualified Board Name) examples:**
+
+- `arduino:avr:uno` - Arduino Uno
+- `arduino:avr:nano` - Arduino Nano
+- `arduino:avr:mega` - Arduino Mega 2560
+- `arduino:avr:leonardo` - Arduino Leonardo
+- `arduino:samd:zero` - Arduino Zero
+- `esp32:esp32:esp32` - ESP32 Dev Module
+- `esp8266:esp8266:nodemcuv2` - NodeMCU 1.0 (ESP-12E Module)
+
 **Response:**
 
 ```javascript
 {
   success: true,
   output: "Compilation output",
+  output_json: null,
   files: null,
   error: null,
   command: "compile",
-  args: ["--fqbn", "arduino:avr:uno", "/path/to/sketch.ino"]
+  args: ["--fqbn", "arduino:avr:uno", "MySketch", "--log", "--log-file", "log.txt"]
 }
 ```
 
 #### `upload-sketch`
 
-Uploads a compiled sketch to an Arduino board.
+Uploads a compiled sketch to an Arduino board with logging enabled.
 
 **Request:**
 
@@ -329,7 +629,7 @@ socket.emit(
   "upload-sketch",
   {
     sketch_path: "/path/to/sketch.ino",
-    port: "/dev/ttyUSB0",
+    port: "/dev/ttyUSB0", // Use appropriate port for your system (e.g., "COM3" on Windows)
     fqbn: "arduino:avr:uno",
   },
   (response) => {
@@ -338,17 +638,61 @@ socket.emit(
 );
 ```
 
+**Common port examples:**
+
+- **Linux/macOS:** `/dev/ttyUSB0`, `/dev/ttyACM0`, `/dev/cu.usbmodem14101`
+- **Windows:** `COM1`, `COM3`, `COM4`, etc.
+
 **Response:**
 
 ```javascript
 {
   success: true,
   output: "Upload output",
+  output_json: null,
   files: null,
   error: null,
   command: "upload",
-  args: ["--port", "/dev/ttyUSB0", "--fqbn", "arduino:avr:uno", "/path/to/sketch.ino"]
+  args: ["--port", "/dev/ttyUSB0", "--fqbn", "arduino:avr:uno", "/path/to/sketch.ino", "--log", "--log-file", "log.txt"]
 }
+```
+
+### Real-time Logging
+
+The application provides real-time logging through Socket.IO events. Most Arduino commands automatically generate log entries that are monitored and sent to connected clients.
+
+#### Automatic Log Monitoring
+
+The application monitors the `log.txt` file for changes and automatically emits `logs` events when new content is added. This provides real-time feedback during compilation, upload, and other operations.
+
+**Log Event Structure:**
+
+```javascript
+// For JSON log entries from Arduino CLI
+{
+  level: "info",
+  message: "Compilation completed successfully",
+  timestamp: "2025-01-01T00:00:00Z"
+}
+
+// For plain text log entries
+{
+  message: "Plain text log message",
+  timestamp: "2025-01-01T00:00:00Z"
+}
+```
+
+### Device Connection Monitoring
+
+The application continuously monitors device connections and automatically emits `device-connected` events when the connection status changes. This allows web applications to react to device plugging/unplugging in real-time.
+
+**Usage:**
+
+```javascript
+socket.on("device-connected", (connected) => {
+  console.log("Device connected:", connected);
+  // Update UI based on connection status
+});
 ```
 
 ## Error Handling
@@ -357,14 +701,21 @@ All commands return a standard response object with the following structure:
 
 ```javascript
 {
-  success: boolean,      // true if the command was successful, false otherwise
-  output: string,        // command output if any
-  files: array | null,   // array of file objects for list-files command, null otherwise
-  error: string | null,  // error message if success is false, null otherwise
-  command: string,       // the command that was executed
-  args: array            // array of arguments passed to the command
+  success: boolean,           // true if the command was successful, false otherwise
+  output: string,            // command output as a string
+  output_json: object | null, // parsed JSON object if output is valid JSON, null otherwise
+  files: array | null,       // array of file objects for list-files command, null otherwise
+  error: string | null,      // error message if success is false, null otherwise
+  command: string,           // the command that was executed
+  args: array                // array of arguments passed to the command
 }
 ```
+
+### Logging
+
+Most Arduino commands include automatic logging to `log.txt`. The log file is monitored in real-time and updates are sent to connected clients via Socket.IO `logs` events. This provides detailed information about compilation, upload processes, and any errors that occur during command execution.
+
+The logging system supports both JSON-formatted log entries from Arduino CLI and plain text messages. All log entries are automatically timestamped and sent to connected clients immediately when new content is detected.
 
 ## Installation
 
