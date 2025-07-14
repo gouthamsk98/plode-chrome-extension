@@ -639,7 +639,7 @@ Uploads a compiled sketch to an Arduino board with logging enabled.
 socket.emit(
   "upload-sketch",
   {
-    sketch_path: "/path/to/sketch.ino",
+    sketch_name: "MySketch",
     port: "/dev/ttyUSB0", // Use appropriate port for your system (e.g., "COM3" on Windows)
     fqbn: "arduino:avr:uno",
   },
@@ -664,7 +664,7 @@ socket.emit(
   files: null,
   error: null,
   command: "upload",
-  args: ["--port", "/dev/ttyUSB0", "--fqbn", "arduino:avr:uno", "/path/to/sketch.ino", "--log", "--log-file", "log.txt"]
+  args: ["--port", "/dev/ttyUSB0", "--fqbn", "arduino:avr:uno", "/path/to/sketches/MySketch/MySketch.ino", "--log", "--log-file", "log.txt"]
 }
 ```
 

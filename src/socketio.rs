@@ -907,6 +907,7 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             }
         };
         sketch_path.push(&sketch_name);
+        sketch_path.push(format!("{}.ino", sketch_name));
 
         let mut args = vec![];
 
@@ -916,7 +917,7 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             args.push(fqbn);
         }
 
-        args.push(sketch_name);
+        args.push(format!("sketches/{}", sketch_name));
         args.extend(vec!["--log".to_string(), "--log-file".to_string(), "log.txt".to_string()]);
 
         tokio::spawn(async move {
@@ -925,7 +926,7 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
     });
     // Upload a sketch
     socket.on("upload-sketch", |Data::<Value>(data), ack: AckSender| {
-        let fields = match extract_required_fields(&data, &["sketch_path", "port", "fqbn"]) {
+        let fields = match extract_required_fields(&data, &["sketch_name", "port", "fqbn"]) {
             Ok(values) => values,
             Err(error_msg) => {
                 let error_response = create_error_response(&error_msg, "upload", vec![]);
@@ -934,7 +935,16 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             }
         };
 
-        let sketch_path = fields[0].clone();
+        let mut sketch_path = match get_sketch_directory() {
+            Ok(dir) => dir,
+            Err(error_msg) => {
+                let error_response = create_error_response(&error_msg, "upload", vec![]);
+                ack.send(&error_response).ok();
+                return;
+            }
+        };
+        sketch_path.push(&fields[0]);
+        sketch_path.push(format!("{}.ino", fields[0]));
         let port = fields[1].clone();
         let fqbn = fields[2].clone();
 
@@ -943,7 +953,7 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             port,
             "--fqbn".to_string(),
             fqbn,
-            sketch_path,
+            sketch_path.to_string_lossy().to_string(),
             "--log".to_string(),
             "--log-file".to_string(),
             "log.txt".to_string()
