@@ -584,7 +584,7 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             run_arduino_command_async("sketch", args, ack).await;
         });
     });
-    socket.on("read-file", |Data::<Value>(data), ack: AckSender| {
+    socket.on("read-sketch-file", |Data::<Value>(data), ack: AckSender| {
         let fields = match extract_required_fields(&data, &["sketch_name", "file_name"]) {
             Ok(values) => values,
             Err(error_msg) => {
@@ -612,7 +612,7 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
                 Ok(content) => {
                     let success_response = create_success_response(
                         content,
-                        "read-file",
+                        "read-sketch-file",
                         vec![sketch_path.to_string_lossy().to_string()],
                         None
                     );
@@ -625,7 +625,7 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             }
         });
     });
-    socket.on("write-file", |Data::<Value>(data), ack: AckSender| {
+    socket.on("write-sketch-file", |Data::<Value>(data), ack: AckSender| {
         let fields = match
             extract_required_fields(&data, &["sketch_name", "file_name", "file_value"])
         {
@@ -637,29 +637,51 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             }
         };
 
-        let _sketch_name = fields[0].clone();
-        let _file_name = fields[1].clone();
-        let _file_value = fields[2].clone();
+        let sketch_name = fields[0].clone();
+        let file_name = fields[1].clone();
+        let file_value = fields[2].clone();
 
         tokio::spawn(async move {
-            // Implementation is commented out in original code
-            // This handler is registered but doesn't perform any operation
-            let success_response = create_success_response(
-                "Write operation is not implemented".to_string(),
-                "write-file",
-                vec![],
-                None
-            );
-            ack.send(&success_response).ok();
+            //get the sketch directory
+            let mut sketch_dir = match get_sketch_directory() {
+                Ok(dir) => dir,
+                Err(error_msg) => {
+                    let error_response = create_error_response(&error_msg, "write-file", vec![]);
+                    ack.send(&error_response).ok();
+                    return;
+                }
+            };
+            sketch_dir.push(&sketch_name);
+            sketch_dir.push(&file_name);
+            //write the file
+            match std::fs::write(&sketch_dir, file_value) {
+                Ok(_) => {
+                    let success_response = create_success_response(
+                        sketch_dir.to_string_lossy().to_string(),
+                        "write-sketch-file",
+                        vec![sketch_dir.to_string_lossy().to_string()],
+                        None
+                    );
+                    ack.send(&success_response).ok();
+                }
+                Err(e) => {
+                    let error_response = create_error_response(
+                        &format!("Failed to write sketch file: {}", e),
+                        "write-file",
+                        vec![]
+                    );
+                    ack.send(&error_response).ok();
+                }
+            }
         });
     });
-    socket.on("delete-file", |Data::<Value>(data), ack: AckSender| {
+    socket.on("delete-sketch-file", |Data::<Value>(data), ack: AckSender| {
         let sketch_name = match extract_string_field(&data, "sketch_name") {
             Some(name) => name,
             None => {
                 let error_response = create_error_response(
                     "Missing sketch name",
-                    "delete-file",
+                    "delete=sketch-file",
                     vec![]
                 );
                 ack.send(&error_response).ok();
@@ -805,6 +827,63 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             }
         });
     });
+    //lists files inisde a sketch
+    socket.on("list-sketch-files", |Data::<Value>(data), ack: AckSender| {
+        let sketch_name = match extract_string_field(&data, "sketch_name") {
+            Some(name) => name,
+            None => {
+                let error_response = create_error_response(
+                    "Missing sketch name",
+                    "list-sketch-files",
+                    vec![]
+                );
+                ack.send(&error_response).ok();
+                return;
+            }
+        };
+        let mut sketch_path = match get_sketch_directory() {
+            Ok(dir) => dir,
+            Err(error_msg) => {
+                let error_response = create_error_response(&error_msg, "list-sketch-files", vec![]);
+                ack.send(&error_response).ok();
+                return;
+            }
+        };
+        sketch_path.push(&sketch_name);
+        if !sketch_path.exists() {
+            let error_response = create_error_response(
+                &format!("Sketch {} does not exist", sketch_name),
+                "list-sketch-files",
+                vec![]
+            );
+            ack.send(&error_response).ok();
+            return;
+        }
+        tokio::spawn(async move {
+            match list_directory_recursive(&sketch_path.to_string_lossy()) {
+                Ok(file_list) => {
+                    let response = CommandResponse {
+                        success: true,
+                        output: "Sketch files listed successfully".to_string(),
+                        output_json: None,
+                        files: Some(file_list),
+                        error: None,
+                        command: "list-sketch-files".to_string(),
+                        args: vec![sketch_path.to_string_lossy().to_string()],
+                    };
+                    ack.send(&response).ok();
+                }
+                Err(e) => {
+                    let error_response = create_error_response(
+                        &format!("Error listing sketch files: {}", e),
+                        "list-sketch-files",
+                        vec![]
+                    );
+                    ack.send(&error_response).ok();
+                }
+            }
+        });
+    });
     // Compile a sketch
     socket.on("compile-sketch", |Data::<Value>(data), ack: AckSender| {
         let sketch_name = match extract_string_field(&data, "sketch_name") {
@@ -874,7 +953,93 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             run_arduino_command_async("upload", args, ack).await;
         });
     });
+    // libary commands
+    socket.on("list-libraries", |ack: AckSender| {
+        tokio::spawn(async move {
+            run_arduino_command_async(
+                "lib",
+                vec!["list".to_string(), "--format".to_string(), "json".to_string()],
+                ack
+            ).await;
+        });
+    });
+    // serach for a library
+    socket.on("search-library", |Data::<Value>(data), ack: AckSender| {
+        let library_name = match extract_string_field(&data, "library_name") {
+            Some(name) => name,
+            None => {
+                let error_response = create_error_response(
+                    "Missing library name",
+                    "search-library",
+                    vec![]
+                );
+                ack.send(&error_response).ok();
+                return;
+            }
+        };
+        tokio::spawn(async move {
+            let args = vec![
+                "lib".to_string(),
+                "search".to_string(),
+                library_name,
+                "--format".to_string(),
+                "json".to_string()
+            ];
+            run_arduino_command_async("lib", args, ack).await;
+        });
+    });
+    socket.on("install-library", |Data::<Value>(data), ack: AckSender| {
+        let library_name = match extract_string_field(&data, "library_name") {
+            Some(name) => name,
+            None => {
+                let error_response = create_error_response(
+                    "Missing library name",
+                    "install-library",
+                    vec![]
+                );
+                ack.send(&error_response).ok();
+                return;
+            }
+        };
+        tokio::spawn(async move {
+            let args = vec![
+                "lib".to_string(),
+                "install".to_string(),
+                library_name,
+                "--log".to_string(),
+                "--log-file".to_string(),
+                "log.txt".to_string()
+            ];
+            run_arduino_command_async("lib", args, ack).await;
+        });
+    });
+    socket.on("uninstall-library", |Data::<Value>(data), ack: AckSender| {
+        let library_name = match extract_string_field(&data, "library_name") {
+            Some(name) => name,
+            None => {
+                let error_response = create_error_response(
+                    "Missing library name",
+                    "uninstall-library",
+                    vec![]
+                );
+                ack.send(&error_response).ok();
+                return;
+            }
+        };
+        tokio::spawn(async move {
+            let args = vec![
+                "lib".to_string(),
+                "uninstall".to_string(),
+                library_name,
+                "--log".to_string(),
+                "--log-file".to_string(),
+                "log.txt".to_string()
+            ];
+            run_arduino_command_async("lib", args, ack).await;
+        });
+    });
 }
+
 fn start_log_monitoring(socket: SocketRef) {
     tokio::spawn(async move {
         let log_file_path = "log.txt";

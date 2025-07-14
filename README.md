@@ -23,28 +23,19 @@ socket.emit("version", (response) => {
 **Response:**
 
 ```javascript
-"1.0.0" // Current version string
+"1.0.0"; // Current version string
 ```
 
 #### `device-connected`
 
-**Server-to-Client Event:** Automatically emitted when a device connection status changes. This event is sent from the server to clients and cannot be triggered by the client.
+Automatically emitted when a device connection status changes. This is a server-to-client event that monitors device connectivity.
 
 **Event Data:**
 
 ```javascript
-// Listen for device connection changes
-socket.on("device-connected", (connected) => {
-  console.log("Device connected:", connected);
-  // Update UI based on connection status
-});
-```
-
-**Data Structure:**
-
-```javascript
-true  // Device is connected
-false // Device is disconnected
+{
+  connected: true; // or false
+}
 ```
 
 #### `connect-device`
@@ -75,33 +66,16 @@ socket.emit("connect-device", { port_address: "/dev/ttyUSB0" }, (response) => {
 
 #### `logs`
 
-**Server-to-Client Event:** Automatically emitted log events from the Arduino CLI operations. This event is sent from the server to clients and cannot be triggered by the client.
-
-**Usage:**
-
-```javascript
-// Listen for log events
-socket.on("logs", (logData) => {
-  console.log("Log:", logData);
-  // Process log data for UI display
-});
-```
+Automatically emitted log events from the Arduino CLI operations. This is a server-to-client event that provides real-time logging.
 
 **Event Data:**
 
 ```javascript
-// For JSON log entries from Arduino CLI
 {
-  level: "info",
-  message: "Compilation completed successfully",
+  message: "Log message content",
   timestamp: "2025-01-01T00:00:00Z"
 }
-
-// For plain text log entries
-{
-  message: "Plain text log message",
-  timestamp: "2025-01-01T00:00:00Z"
-}
+// or parsed JSON log data from Arduino CLI
 ```
 
 ### USB Operations
@@ -423,7 +397,7 @@ socket.emit("create-sketch", { sketch_name: "MySketch" }, (response) => {
 }
 ```
 
-#### `read-file` (Sketch Files)
+#### `read-sketch-file` (Sketch Files)
 
 Reads a file from the sketches directory.
 
@@ -431,10 +405,10 @@ Reads a file from the sketches directory.
 
 ```javascript
 socket.emit(
-  "read-file",
+  "read-sketch-file",
   {
     sketch_name: "MySketch",
-    file_name: "MySketch.ino"
+    file_name: "MySketch.ino",
   },
   (response) => {
     console.log(response);
@@ -451,12 +425,12 @@ socket.emit(
   output_json: null,
   files: null,
   error: null,
-  command: "read-file",
+  command: "read-sketch-file",
   args: ["/path/to/sketches/MySketch.ino"]
 }
 ```
 
-#### `write-file` (Sketch Files)
+#### `write=sketch-file` (Sketch Files)
 
 Writes content to a file in the sketches directory.
 
@@ -464,11 +438,11 @@ Writes content to a file in the sketches directory.
 
 ```javascript
 socket.emit(
-  "write-file",
+  "write-sketch-file",
   {
     sketch_name: "MySketch",
     file_name: "MySketch.ino",
-    file_value: "void setup() {\n  // code\n}\n\nvoid loop() {\n  // code\n}"
+    file_value: "void setup() {\n  // code\n}\n\nvoid loop() {\n  // code\n}",
   },
   (response) => {
     console.log(response);
@@ -485,12 +459,12 @@ socket.emit(
   output_json: null,
   files: null,
   error: null,
-  command: "write-file",
+  command: "write-sketch-file",
   args: []
 }
 ```
 
-#### `delete-file` (Sketch Files)
+#### `delete-sketch-file` (Sketch Files)
 
 Deletes a file from the sketches directory.
 
@@ -498,10 +472,10 @@ Deletes a file from the sketches directory.
 
 ```javascript
 socket.emit(
-  "delete-file",
+  "delete-sketch-file",
   {
     sketch_name: "MySketch",
-    file_name: "MySketch.ino"
+    file_name: "MySketch.ino",
   },
   (response) => {
     console.log(response);
@@ -518,7 +492,7 @@ socket.emit(
   output_json: null,
   files: null,
   error: null,
-  command: "delete-file",
+  command: "delete-sketch-file",
   args: ["/path/to/sketches/MySketch/MySketch.ino"]
 }
 ```
@@ -571,6 +545,43 @@ socket.emit("remove-sketch", { sketch_name: "MySketch" }, (response) => {
   files: null,
   error: null,
   command: "remove-sketch",
+  args: ["/path/to/sketches/MySketch"]
+}
+```
+
+#### `list-sketch-files`
+
+Lists all files inside a specific sketch directory.
+
+**Request:**
+
+```javascript
+socket.emit("list-sketch-files", { sketch_name: "MySketch" }, (response) => {
+  console.log(response);
+});
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "Sketch files listed successfully",
+  output_json: null,
+  files: [
+    {
+      filename: "MySketch.ino",
+      filetype: "ino",
+      path: "/path/to/sketches/MySketch/MySketch.ino",
+      size: 1024,
+      last_modified: "2025-07-14T10:30:00Z",
+      created: "2025-07-14T10:00:00Z",
+      is_dir: false,
+      is_file: true
+    }
+  ],
+  error: null,
+  command: "list-sketch-files",
   args: ["/path/to/sketches/MySketch"]
 }
 ```
@@ -654,6 +665,114 @@ socket.emit(
   error: null,
   command: "upload",
   args: ["--port", "/dev/ttyUSB0", "--fqbn", "arduino:avr:uno", "/path/to/sketch.ino", "--log", "--log-file", "log.txt"]
+}
+```
+
+### Library Management
+
+Commands for managing Arduino libraries:
+
+#### `list-libraries`
+
+Lists all installed Arduino libraries.
+
+**Request:**
+
+```javascript
+socket.emit("list-libraries", (response) => {
+  console.log(response);
+});
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "JSON output from Arduino CLI",
+  output_json: { /* Parsed JSON object with library information */ },
+  files: null,
+  error: null,
+  command: "lib",
+  args: ["list", "--format", "json"]
+}
+```
+
+#### `search-library`
+
+Searches for Arduino libraries by name.
+
+**Request:**
+
+```javascript
+socket.emit("search-library", { library_name: "WiFi" }, (response) => {
+  console.log(response);
+});
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "JSON output from Arduino CLI",
+  output_json: { /* Parsed JSON object with search results */ },
+  files: null,
+  error: null,
+  command: "lib",
+  args: ["lib", "search", "WiFi", "--format", "json"]
+}
+```
+
+#### `install-library`
+
+Installs an Arduino library with logging enabled.
+
+**Request:**
+
+```javascript
+socket.emit("install-library", { library_name: "WiFi" }, (response) => {
+  console.log(response);
+});
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "Installation output",
+  output_json: null,
+  files: null,
+  error: null,
+  command: "lib",
+  args: ["lib", "install", "WiFi", "--log", "--log-file", "log.txt"]
+}
+```
+
+#### `uninstall-library`
+
+Uninstalls an Arduino library with logging enabled.
+
+**Request:**
+
+```javascript
+socket.emit("uninstall-library", { library_name: "WiFi" }, (response) => {
+  console.log(response);
+});
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  output: "Uninstallation output",
+  output_json: null,
+  files: null,
+  error: null,
+  command: "lib",
+  args: ["lib", "uninstall", "WiFi", "--log", "--log-file", "log.txt"]
 }
 ```
 
