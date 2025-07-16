@@ -1,3 +1,4 @@
+use axum::extract;
 use serde_json::Value;
 use socketioxide::{ extract::{ AckSender, Data, SocketRef } };
 use tracing::{ info, error };
@@ -594,7 +595,7 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             }
         };
 
-        let _sketch_name = fields[0].clone();
+        let sketch_name = fields[0].clone();
         let file_name = fields[1].clone();
 
         tokio::spawn(async move {
@@ -607,7 +608,8 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
                 }
             };
 
-            let sketch_path = sketch_dir.join(&file_name);
+            let mut sketch_path = sketch_dir.join(&sketch_name);
+            sketch_path.push(&file_name);
             match read_file_content(&sketch_path).await {
                 Ok(content) => {
                     let success_response = create_success_response(
@@ -827,6 +829,7 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             }
         });
     });
+
     //lists files inisde a sketch
     socket.on("list-sketch-files", |Data::<Value>(data), ack: AckSender| {
         let sketch_name = match extract_string_field(&data, "sketch_name") {
@@ -989,15 +992,16 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
         };
         tokio::spawn(async move {
             let args = vec![
-                "lib".to_string(),
                 "search".to_string(),
                 library_name,
+                "name".to_string(),
                 "--format".to_string(),
                 "json".to_string()
             ];
             run_arduino_command_async("lib", args, ack).await;
         });
     });
+
     socket.on("install-library", |Data::<Value>(data), ack: AckSender| {
         let library_name = match extract_string_field(&data, "library_name") {
             Some(name) => name,
@@ -1013,7 +1017,6 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
         };
         tokio::spawn(async move {
             let args = vec![
-                "lib".to_string(),
                 "install".to_string(),
                 library_name,
                 "--log".to_string(),
@@ -1038,7 +1041,6 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
         };
         tokio::spawn(async move {
             let args = vec![
-                "lib".to_string(),
                 "uninstall".to_string(),
                 library_name,
                 "--log".to_string(),
