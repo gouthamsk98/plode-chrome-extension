@@ -1,4 +1,4 @@
-use serde::{ de, Deserialize, Serialize };
+use serde::{ Deserialize, Serialize };
 // Response structures
 #[derive(Serialize, Deserialize)]
 pub struct CommandResponse {
@@ -36,4 +36,12 @@ pub struct UsbAddFileRequest {
 pub struct ArduinoCommand {
     pub command: String,
     pub args: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LibraryUploadResponse {
+    pub success: bool,
+    pub message: String,
+    pub library_name: String,
+    pub file_path: Option<String>,
 }

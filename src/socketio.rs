@@ -1,11 +1,11 @@
-use axum::extract;
+use axum::{ extract, http::response };
 use serde_json::Value;
 use socketioxide::{ extract::{ AckSender, Data, SocketRef } };
 use tracing::{ info, error };
 use crate::usb::{ find_mount_point, list_directory_recursive, read_file_as_base64, write_file };
 use crate::models::*;
 use crate::compiler::run_arduino_command;
-use std::path::Path;
+use std::path::{ Path, PathBuf };
 use std::fs;
 use chrono;
 use std::sync::{ Arc, Mutex };
@@ -29,6 +29,7 @@ pub fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
     check_port_connection(socket.clone(), Arc::clone(&port_address));
     // Start automatic log monitoring
     start_log_monitoring(socket.clone());
+    enable_unsafe_install(true);
 }
 fn is_device_connected(port: &str) -> bool {
     let ports = serialport::available_ports().unwrap_or_else(|_| { vec![] });
@@ -416,7 +417,7 @@ fn extract_string_field(data: &Value, field: &str) -> Option<String> {
 }
 
 // Helper function to get sketch directory
-fn get_sketch_directory() -> Result<std::path::PathBuf, String> {
+pub fn get_sketch_directory() -> Result<std::path::PathBuf, String> {
     let current_dir = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
     let sketch_dir = current_dir.join("sketches");
 
@@ -458,7 +459,31 @@ async fn run_arduino_command_async(command: &str, args: Vec<String>, ack: AckSen
     let response = run_arduino_command(&arduino_command).await;
     ack.send(&response).ok();
 }
-
+fn enable_unsafe_install(enable: bool) {
+    tokio::spawn(async move {
+        let args = vec![
+            "set".to_string(),
+            "library.enable_unsafe_install".to_string(),
+            enable.to_string()
+        ];
+        let arduino_command = ArduinoCommand {
+            command: "config".to_string(),
+            args,
+        };
+        let response = run_arduino_command(&arduino_command).await;
+        match response {
+            CommandResponse { success: true, output, .. } => {
+                info!("Unsafe install enabled: {}", output);
+            }
+            CommandResponse { error: Some(e), .. } => {
+                error!("Failed to enable unsafe install: {}", e);
+            }
+            _ => {
+                error!("Unexpected response when enabling unsafe install");
+            }
+        }
+    });
+}
 fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<String>>>) {
     socket.on("connect-device", |Data::<Value>(data), ack: AckSender| {
         tokio::spawn(async move {
@@ -966,6 +991,36 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             run_arduino_command_async("upload", args, ack).await;
         });
     });
+    //enable or disable unsafe library installation
+    socket.on("enable-unsafe-install", |Data::<Value>(data), ack: AckSender| {
+        let enable = match data.get("enable").and_then(|v| v.as_bool()) {
+            Some(value) => value,
+            None => {
+                let error_response = create_error_response(
+                    "Missing enable flag",
+                    "enable-unsafe-install",
+                    vec![]
+                );
+                ack.send(&error_response).ok();
+                return;
+            }
+        };
+        enable_unsafe_install(enable);
+        let response = CommandResponse {
+            success: true,
+            output: format!("Unsafe install is now {}", if enable {
+                "enabled"
+            } else {
+                "disabled"
+            }),
+            output_json: None,
+            files: None,
+            error: None,
+            command: "enable-unsafe-install".to_string(),
+            args: vec![enable.to_string()],
+        };
+        ack.send(&response).ok();
+    });
     // libary commands
     socket.on("list-libraries", |ack: AckSender| {
         tokio::spawn(async move {
@@ -1001,7 +1056,6 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             run_arduino_command_async("lib", args, ack).await;
         });
     });
-
     socket.on("install-library", |Data::<Value>(data), ack: AckSender| {
         let library_name = match extract_string_field(&data, "library_name") {
             Some(name) => name,
@@ -1016,13 +1070,22 @@ fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<
             }
         };
         tokio::spawn(async move {
-            let args = vec![
-                "install".to_string(),
-                library_name,
-                "--log".to_string(),
-                "--log-file".to_string(),
-                "log.txt".to_string()
+            let mut args = vec![
+                "install".to_string()
+                // library_name will be added below
             ];
+            if library_name.ends_with(".zip") {
+                args.push("--zip-path".to_string());
+                let lib_path = get_sketch_directory()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join("libraries")
+                    .join(&library_name);
+                info!(?lib_path, "Library path to install");
+                args.push(lib_path.to_string_lossy().to_string());
+            } else {
+                args.push(library_name);
+            }
+            args.extend(vec!["--log".to_string(), "--log-file".to_string(), "log.txt".to_string()]);
             run_arduino_command_async("lib", args, ack).await;
         });
     });

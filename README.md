@@ -2,6 +2,63 @@
 
 A native application that provides communication between web extensions and hardware devices, particularly focusing on Arduino boards and USB mass storage devices.
 
+## HTTP API Endpoints
+
+### Library Upload
+
+#### `POST /upload-library`
+
+Uploads a library file (ZIP format) via HTTP multipart form data for local installation.
+
+**Request:**
+
+Use multipart form data with the file field name as the library name:
+
+```javascript
+const formData = new FormData();
+formData.append('MyCustomLibrary', zipFileBlob, 'MyCustomLibrary.zip');
+
+fetch('http://localhost:8536/upload-library', {
+  method: 'POST',
+  body: formData
+})
+.then(response => response.json())
+.then(data => console.log(data));
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  message: "Library 'MyCustomLibrary'  command: "lib",
+  args: ["uninstall", "WiFi", "--log", "--log-file", "log.txt"]
+}
+```
+
+### Configuration Management
+
+The application automatically configures Arduino CLI settings for optimal operation.
+
+#### Unsafe Library Installation
+
+The application automatically enables unsafe library installation to support local ZIP file installations. This is done during startup to ensure compatibility with custom libraries uploaded via the HTTP API.
+
+**Automatic Configuration:**
+- `library.enable_unsafe_install` is set to `true` during application startup
+- This allows installation of libraries from local ZIP files
+- Required for the `/upload-library` → `install-library` workflowoaded successfully",
+  library_name: "MyCustomLibrary",
+  file_path: "/path/to/sketches/libraries/MyCustomLibrary.zip"
+}
+```
+
+**Features:**
+- Accepts ZIP files containing Arduino libraries
+- Uses the form field name as the library name
+- Automatically saves to the sketches/libraries directory
+- Can be used with the `install-library` socket command for local installation
+
 ## Socket.IO Commands
 
 This document outlines all available Socket.IO commands that can be used to interact with the Plode application.
@@ -720,18 +777,26 @@ socket.emit("search-library", { library_name: "WiFi" }, (response) => {
   files: null,
   error: null,
   command: "lib",
-  args: ["lib", "search", "WiFi", "--format", "json"]
+  args: ["search", "WiFi", "name", "--format", "json"]
 }
 ```
 
 #### `install-library`
 
-Installs an Arduino library with logging enabled.
+Installs an Arduino library with logging enabled. Supports both online libraries and local ZIP files.
 
-**Request:**
+**For online libraries:**
 
 ```javascript
 socket.emit("install-library", { library_name: "WiFi" }, (response) => {
+  console.log(response);
+});
+```
+
+**For local ZIP files (uploaded via HTTP API):**
+
+```javascript
+socket.emit("install-library", { library_name: "MyCustomLibrary.zip" }, (response) => {
   console.log(response);
 });
 ```
@@ -746,9 +811,15 @@ socket.emit("install-library", { library_name: "WiFi" }, (response) => {
   files: null,
   error: null,
   command: "lib",
-  args: ["lib", "install", "WiFi", "--log", "--log-file", "log.txt"]
+  args: ["install", "WiFi", "--log", "--log-file", "log.txt"]
 }
 ```
+
+**Features:**
+- Automatically detects ZIP files by `.zip` extension
+- Uses `--zip-path` flag for local ZIP file installations
+- Supports logging for installation progress tracking
+- Compatible with libraries uploaded via the HTTP `/upload-library` endpoint
 
 #### `uninstall-library`
 
@@ -801,6 +872,39 @@ The application monitors the `log.txt` file for changes and automatically emits 
 }
 ```
 
+### Library Upload and Installation Workflow
+
+For uploading and installing custom libraries, use the following workflow:
+
+1. **Upload the library via HTTP API:**
+```javascript
+const formData = new FormData();
+formData.append('MyCustomLibrary', zipFileBlob, 'MyCustomLibrary.zip');
+
+const uploadResponse = await fetch('http://localhost:8536/upload-library', {
+  method: 'POST',
+  body: formData
+});
+const uploadResult = await uploadResponse.json();
+console.log('Upload result:', uploadResult);
+```
+
+2. **Install the uploaded library via Socket.IO:**
+```javascript
+socket.emit("install-library", { library_name: "MyCustomLibrary.zip" }, (response) => {
+  console.log('Installation result:', response);
+});
+```
+
+3. **Monitor installation progress via logs:**
+```javascript
+socket.on("logs", (logData) => {
+  console.log('Installation log:', logData);
+});
+```
+
+This workflow allows for seamless upload and installation of custom Arduino libraries with real-time feedback.
+
 ### Device Connection Monitoring
 
 The application continuously monitors device connections and automatically emits `device-connected` events when the connection status changes. This allows web applications to react to device plugging/unplugging in real-time.
@@ -849,6 +953,17 @@ sudo installer -pkg plode_mass_storage.pkg -target /
 ### Windows
 
 Run the `plode_mass_storage_Installer.exe` file and follow the installation instructions.
+
+## Server Configuration
+
+The Plode Web Agent runs on `localhost:8536` and provides:
+- **Socket.IO interface** at `ws://localhost:8536/socket.io/` for real-time communication
+- **HTTP REST API** at `http://localhost:8536/` for file uploads and other operations
+- **CORS enabled** for all origins to support web browser integration
+
+### Available Endpoints:
+- `GET /` - Health check endpoint (returns "alive")
+- `POST /upload-library` - Library file upload endpoint
 
 ## Building from Source
 

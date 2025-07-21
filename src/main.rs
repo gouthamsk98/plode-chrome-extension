@@ -1,10 +1,10 @@
-use axum::routing::get;
+use axum::routing::{ get, post };
 use socketioxide::SocketIo;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 use tower_http::cors::{ CorsLayer, Any };
 use plode_web_agent::socketio::on_connect;
-use plode_web_agent::compiler::health_check;
+use plode_web_agent::compiler::{ health_check, upload_library };
 use include_dir::{ include_dir, Dir };
 use std::fs;
 // Embed entire directory at compile time
@@ -65,6 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/",
             get(|| async { "alive" })
         )
+        .route("/upload-library", post(upload_library))
         .layer(socketio_layer)
         .layer(cors);
     #[cfg(debug_assertions)]
