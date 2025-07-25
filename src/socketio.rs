@@ -484,6 +484,83 @@ fn enable_unsafe_install(enable: bool) {
         }
     });
 }
+fn extract_zip(zip_path: &str, extract_to: &str) -> Result<Vec<String>, DownloadError> {
+    let file = fs::File::open(zip_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    let mut extracted_files = Vec::new();
+
+    // Create extraction directory
+    fs::create_dir_all(extract_to)?;
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        let outpath = Path::new(extract_to).join(file.name());
+
+        if file.name().ends_with('/') {
+            // It's a directory
+            fs::create_dir_all(&outpath)?;
+        } else {
+            // It's a file
+            if let Some(p) = outpath.parent() {
+                if !p.exists() {
+                    fs::create_dir_all(p)?;
+                }
+            }
+
+            let mut outfile = fs::File::create(&outpath)?;
+            std::io::copy(&mut file, &mut outfile)?;
+            extracted_files.push(outpath.to_string_lossy().to_string());
+        }
+
+        // Get and Set permissions
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Some(mode) = file.unix_mode() {
+                fs::set_permissions(&outpath, fs::Permissions::from_mode(mode))?;
+            }
+        }
+    }
+
+    println!("Extracted {} files from {}", extracted_files.len(), zip_path);
+    Ok(extracted_files)
+}
+
+// Download and extract ZIP in one operation (async)
+async fn download_and_extract_zip(
+    url: &str,
+    extract_to: &str,
+    keep_zip: bool
+) -> Result<Vec<String>, DownloadError> {
+    let temp_zip = format!("{}/temp_download.zip", extract_to);
+
+    // Create directory if it doesn't exist
+    fs::create_dir_all(extract_to)?;
+
+    // Download ZIP file
+    let response = reqwest::get(url).await?;
+
+    if !response.status().is_success() {
+        return Err(DownloadError::HttpError(response.status().as_u16()));
+    }
+
+    let bytes = response.bytes().await?;
+
+    // Write ZIP to temporary file
+    tokio::fs::write(&temp_zip, &bytes).await?;
+    println!("Downloaded ZIP: {} -> {}", url, temp_zip);
+
+    // Extract ZIP
+    let extracted_files = extract_zip(&temp_zip, extract_to)?;
+
+    // Optionally remove the ZIP file
+    if !keep_zip {
+        fs::remove_file(&temp_zip)?;
+        println!("Removed temporary ZIP file");
+    }
+
+    Ok(extracted_files)
+}
 fn register_arduino_handlers(socket: &SocketRef, port_address: Arc<Mutex<Option<String>>>) {
     socket.on("connect-device", |Data::<Value>(data), ack: AckSender| {
         tokio::spawn(async move {

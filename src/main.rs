@@ -6,9 +6,12 @@ use tower_http::cors::{ CorsLayer, Any };
 use plode_web_agent::socketio::on_connect;
 use plode_web_agent::compiler::{ health_check, upload_library };
 use include_dir::{ include_dir, Dir };
+use plode_web_agent::models::{ LibraryUploadResponse, DownloadError };
+use std::path::Path;
 use std::fs;
 // Embed entire directory at compile time
 static ASSETS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/assets");
+const ASSETS_DIR_PATH: &str = "assets_test";
 fn extract_assets_to_temp() -> Result<String, Box<dyn std::error::Error>> {
     let temp_dir = std::env::temp_dir().join("my_app_assets");
 
@@ -42,10 +45,44 @@ fn use_embedded_assets() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+// Asynchronous version
+pub async fn download_asset_async(url: &str, local_path: &str) -> Result<(), DownloadError> {
+    // Create directory if it doesn't exist
+    if let Some(parent) = Path::new(local_path).parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    // print absolute path
+    let absolute_path = std::fs
+        ::canonicalize(local_path)
+        .unwrap_or_else(|_| Path::new(local_path).to_path_buf());
+    println!("Absolute path: {}", absolute_path.display());
+
+    // Download the file
+    let response = reqwest::get(url).await?;
+
+    if !response.status().is_success() {
+        return Err(DownloadError::HttpError(response.status().as_u16()));
+    }
+
+    let bytes = response.bytes().await?;
+
+    // Write to file
+    tokio::fs::write(local_path, &bytes).await?;
+
+    println!("Downloaded: {} -> {}", url, local_path);
+    Ok(())
+}
+// Extract ZIP file to directory
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(FmtSubscriber::default())?;
-    // use_embedded_assets()?;
+    // download_and_extract_zip(
+    //     "http://localhost:3000/macos/compiler.zip",
+    //     ASSETS_DIR_PATH,
+    //     false
+    // ).await.expect("Failed to download asset");
+    use_embedded_assets()?;
     // Health check for arduino-cli
     match health_check() {
         true => info!("arduino-cli initialized successfully"),

@@ -1,26 +1,25 @@
 #!/bin/bash
 
-set -e
+# Get the current user (the one running the installer)
+CURRENT_USER=$(logname 2>/dev/null || echo $SUDO_USER)
+if [ -z "$CURRENT_USER" ]; then
+  CURRENT_USER=$(stat -f%Su /dev/console)
+fi
 
-APP_NAME="plode"
-BIN_PATH="/usr/local/bin/$APP_NAME"
-PLIST_PATH="/Library/LaunchAgents/com.$APP_NAME.daemon.plist"
-NATIVE_MANIFEST="/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.$APP_NAME.native.json"
+USER_HOME=$(dscl . -read /Users/$CURRENT_USER NFSHomeDirectory | cut -d' ' -f2)
+PLIST_PATH="/Library/LaunchAgents/com.plode_web_agent.daemon.plist"
+USER_PLIST_PATH="$USER_HOME/Library/LaunchAgents/com.plode_web_agent.daemon.plist"
 
-echo "🔧 Setting up binary permissions..."
-chmod +x "$BIN_PATH"
+# Copy plist to user's LaunchAgents directory
+mkdir -p "$USER_HOME/Library/LaunchAgents"
+cp "$PLIST_PATH" "$USER_PLIST_PATH"
+chown $CURRENT_USER:staff "$USER_PLIST_PATH"
 
-echo "📂 Ensuring LaunchAgent is loaded..."
-chmod 644 "$PLIST_PATH"
-chown root:wheel "$PLIST_PATH"
-launchctl load -w "$PLIST_PATH"
+# Load the LaunchAgent for the current user
+sudo -u $CURRENT_USER launchctl load "$USER_PLIST_PATH"
 
-echo "📦 Copying Native Messaging host JSON to user directories..."
-for user_home in /Users/*; do
-    CHROME_SUPPORT_DIR="$user_home/Library/Application Support/Google/Chrome/NativeMessagingHosts"
-    mkdir -p "$CHROME_SUPPORT_DIR"
-    cp "$NATIVE_MANIFEST" "$CHROME_SUPPORT_DIR/"
-    chmod o+r "$CHROME_SUPPORT_DIR/com.$APP_NAME.native.json"
-done
+# Enable it to start at login
+sudo -u $CURRENT_USER launchctl enable "gui/$(id -u $CURRENT_USER)/com.plode_web_agent.daemon"
 
-echo "✅ Installation complete!"
+echo "✅ plode_web_agent daemon has been installed and started"
+exit 0

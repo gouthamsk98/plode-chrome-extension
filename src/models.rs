@@ -1,4 +1,12 @@
 use serde::{ Deserialize, Serialize };
+#[cfg(target_os = "windows")]
+const WCH_ASSETS_LINK: &str = "https://example.com/assets/";
+#[cfg(target_os = "linux")]
+const WCH_ASSETS_LINK: &str = "https://example.com/assets/";
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const WCH_ASSETS_LINK: &str = "http://localhost:3000/macos/arm64/compiler.zip";
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+const WCH_ASSETS_LINK: &str = "http://localhost:3000/macos/x86_64/compiler.zip";
 // Response structures
 #[derive(Serialize, Deserialize)]
 pub struct CommandResponse {
@@ -44,4 +52,29 @@ pub struct LibraryUploadResponse {
     pub message: String,
     pub library_name: String,
     pub file_path: Option<String>,
+}
+#[derive(Debug)]
+pub enum DownloadError {
+    NetworkError(reqwest::Error),
+    IoError(std::io::Error),
+    HttpError(u16),
+    ZipError(zip::result::ZipError),
+}
+
+impl From<reqwest::Error> for DownloadError {
+    fn from(err: reqwest::Error) -> Self {
+        DownloadError::NetworkError(err)
+    }
+}
+
+impl From<std::io::Error> for DownloadError {
+    fn from(err: std::io::Error) -> Self {
+        DownloadError::IoError(err)
+    }
+}
+
+impl From<zip::result::ZipError> for DownloadError {
+    fn from(err: zip::result::ZipError) -> Self {
+        DownloadError::ZipError(err)
+    }
 }
